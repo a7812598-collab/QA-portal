@@ -325,7 +325,8 @@ body{font-family:'Segoe UI','Noto Sans TC',system-ui,sans-serif;background:var(-
     <iframe id="fr-lab" class="sys-fr hidden" title="LAB 量測排程" allow="clipboard-read; clipboard-write"></iframe>
     <iframe id="fr-admin" class="sys-fr hidden" title="Super Admin" ></iframe>
     <div id="fr-oqc" class="sys-fr hidden" style="background:#f0f2f5;overflow-y:auto;flex-direction:column;">
-      <div id="oqc-offline" style="display:none;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;text-align:center;padding:40px;">
+      <iframe id="oqc-frame" style="width:100%;height:100%;border:none;display:none;flex:1;min-height:0;" title="OQC Agent"></iframe>
+      <div id="oqc-offline" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;text-align:center;padding:40px;">
         <div style="font-size:48px;">⚠️</div>
         <div style="font-size:20px;font-weight:600;color:#333;">OQC 伺服器未啟動</div>
         <div style="font-size:14px;color:#666;max-width:400px;line-height:1.6;">
@@ -1069,18 +1070,20 @@ function goSys(sys){
 
 function oqcLoad(){
   var offlineDiv = document.getElementById('oqc-offline');
-  fetch('http://localhost:5050/ping', {signal: AbortSignal.timeout(2000)})
+  var frOqc = document.getElementById('oqc-frame');
+  fetch('http://localhost:5000/ping', {signal: AbortSignal.timeout(2000)})
     .then(function(r){
       if(r.ok){
         if(offlineDiv) offlineDiv.style.display='none';
-        var fr=document.getElementById('oqc-frame');
-        if(fr) fr.src='http://localhost:5050';
+        if(frOqc){ frOqc.style.display='block'; if(!frOqc.src||frOqc.src==='about:blank') frOqc.src='http://localhost:5000'; }
       } else {
         if(offlineDiv) offlineDiv.style.display='flex';
+        if(frOqc) frOqc.style.display='none';
       }
     })
     .catch(function(){
       if(offlineDiv) offlineDiv.style.display='flex';
+      if(frOqc) frOqc.style.display='none';
     });
 }
 

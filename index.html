@@ -1802,7 +1802,7 @@ async function oqcSyncFlow(){
         return p.project+': '+p.matched+'/'+p.rows+(p.error?' ❌'+p.error:'');
       }).join(' | ');
       if(lbl) lbl.textContent='✅ 同步完成 '+summary;
-      oqcLoad();
+      setTimeout(function(){ oqcLoad(); }, 3000);
     } else {
       if(lbl) lbl.textContent='❌ 同步失敗：'+(d.error||'未知錯誤');
     }

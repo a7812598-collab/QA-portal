@@ -519,6 +519,7 @@ body.at-home .topbar{display:none;}
   <div style="flex:1;"></div>
   <select id="sa-proj-sel" onchange="saSwitchProject(this.value)" title="切換專案" style="padding:6px 14px;border-radius:8px;border:1.5px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;font-size:13px;font-weight:600;cursor:pointer;outline:none;"></select>
   <span id="sa-updated" style="font-size:11px;color:rgba(255,255,255,.4);white-space:nowrap;"></span>
+  <button onclick="goSys('admin')" style="display:inline-flex;align-items:center;gap:5px;padding:6px 16px;background:rgba(255,255,255,.06);border:1.5px solid rgba(255,255,255,.2);border-radius:20px;color:rgba(255,255,255,.75);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;letter-spacing:.3px;transition:all .2s;" onmouseover="this.style.background='rgba(255,255,255,.14)';this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,.06)';this.style.color='rgba(255,255,255,.75)';">‹ 返回專案管理</button>
   <button onclick="portalLogout()" style="padding:5px 14px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:7px;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">🚪 登出</button>
 </div>
 
@@ -850,7 +851,7 @@ body.at-home .topbar{display:none;}
           <button onclick="mgmtSetRange('3m')" id="mgmt-btn-3m" style="padding:5px 10px;font-size:12px;border-radius:6px;border:1.5px solid #e2e8f0;background:#fff;color:#475569;cursor:pointer;">近3月</button>
         </div>
         <span id="mgmt-updated" style="font-size:12px;color:#94a3b8;"></span>
-        <button onclick="mgmtLoad()" style="padding:7px 14px;background:#0891b2;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">🔄</button>
+        <button onclick="mgmtLoad()" title="重新整理" style="width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:1.5px solid #cbd5e1;border-radius:50%;cursor:pointer;font-size:14px;color:#64748b;transition:all .2s;flex-shrink:0;" onmouseover="this.style.borderColor='#0891b2';this.style.color='#0891b2';this.style.background='#f0f9ff';" onmouseout="this.style.borderColor='#cbd5e1';this.style.color='#64748b';this.style.background='transparent';">↻</button>
       </div>
     </div>
 
@@ -1786,6 +1787,32 @@ function _execGoSys(sys){
   }
 }
 
+async function oqcSyncFlow(){
+  var btn = document.getElementById('oqc-sync-btn');
+  var lbl = document.getElementById('oqc-sync-lbl');
+  if(btn) { btn.disabled=true; btn.textContent='⏳ 同步中…'; }
+  if(lbl) lbl.textContent='正在同步 SharePoint…';
+  try {
+    var r = await fetch(_IQC_API_BASE+'/oqc/sync?code='+_IQC_API_KEY, {
+      method:'POST', headers:{'Content-Type':'application/json'}
+    });
+    var d = await r.json();
+    if(d.ok){
+      var summary = (d.projects||[]).map(function(p){
+        return p.project+': '+p.matched+'/'+p.rows+(p.error?' ❌'+p.error:'');
+      }).join(' | ');
+      if(lbl) lbl.textContent='✅ 同步完成 '+summary;
+      oqcLoad();
+    } else {
+      if(lbl) lbl.textContent='❌ 同步失敗：'+(d.error||'未知錯誤');
+    }
+  } catch(e) {
+    if(lbl) lbl.textContent='❌ 連線失敗：'+e.message;
+  } finally {
+    if(btn) { btn.disabled=false; btn.textContent='⚡ 同步整理'; }
+  }
+}
+
 function oqcLoad(){
   var offlineDiv = document.getElementById('oqc-offline');
   fetch('http://localhost:5050/ping', {signal: AbortSignal.timeout(2000)})
@@ -1935,7 +1962,12 @@ function oqcRender(){
   filtered.forEach(function(r,idx){
     var st=oqcGetStatus(r);
     var rowBg=idx%2===1?'background:rgba(8,145,178,.022);':'';
-    var fileCell=r.oqc_filename?'<a href="'+'file:///'+r.oqc_filename.replace(/\\/g,'/')+'" target="_blank" style="font-size:12px;color:#1B4F9C;text-decoration:none;font-weight:600;" title="'+r.oqc_filename+'">📄 '+r.oqc_filename.split('\\').pop()+'</a>':'<span style="color:#94a3b8;font-size:12px;">—</span>';
+    var fname=r.oqc_filename?r.oqc_filename.split('\\').pop().split('/').pop():'';
+    var fileCell=r.oqc_filename
+      ?(r.oqc_filename.startsWith('http')
+        ?'<a href="'+r.oqc_filename+'" target="_blank" style="font-size:12px;color:#1B4F9C;text-decoration:none;font-weight:600;" title="'+fname+'">📄 '+fname+'</a>'
+        :'<span style="font-size:12px;color:#475569;font-weight:600;" title="'+r.oqc_filename+'">📄 '+fname+'</span>')
+      :'<span style="color:#94a3b8;font-size:12px;">—</span>';
     var inspNames=OQC_INSP.map(function(x){return x.supplier_name;});
     var needsInsp=inspNames.length===0||inspNames.indexOf(r.factory)>=0;
     var iqcCell;
@@ -1955,37 +1987,6 @@ function oqcRender(){
   if(tbody)tbody.innerHTML=html;
 }
 function oqcSync(){oqcLoadData();}
-
-var _oqcSyncStep=0;
-function oqcSyncFlow(){
-  var btn=document.getElementById('oqc-sync-btn');
-  if(!btn)return;
-  if(_oqcSyncStep===0){
-    var parts=['C:','Users','hodam','Claude','Projects','OQC 讀取確認','oqc-system','python','oqc_sync.py'];
-    var cmd='python "'+parts.join('\\')+'"';
-    navigator.clipboard.writeText(cmd).then(function(){
-      btn.textContent='✅ 已複製，執行後再按我';
-      btn.style.background='#0891b2';
-      _oqcSyncStep=1;
-      oqcToast('📋 已複製！請貼到 CMD 按 Enter，完成後再按「已複製」按鈕');
-    }).catch(function(){
-      oqcToast(cmd);
-      btn.textContent='✅ 指令已顯示，執行後再按我';
-      btn.style.background='#0891b2';
-      _oqcSyncStep=1;
-    });
-  } else {
-    btn.textContent='載入中…';
-    btn.style.background='#64748b';
-    btn.disabled=true;
-    _oqcSyncStep=0;
-    oqcLoadData(function(){
-      btn.textContent='⚡ 同步整理';
-      btn.style.background='#1B4F9C';
-      btn.disabled=false;
-    });
-  }
-}
 function oqcOpenIqc(id){
   var d=OQC_IQC_MAP[id];
   if(!d)return;

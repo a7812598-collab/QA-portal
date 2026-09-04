@@ -1296,7 +1296,7 @@ function portalLogout(){
     // QF 的登入憑證（後端簽發）與 SA 後台的憑證，登出時一併作廢，
     // 否則登出後點進去會直接進入已登入狀態。
     ['ipqc_token','ipqc_role','ipqc_user','ipqc_project',
-     'iqc_token','lab_token','oqc_token','oqc_user'].forEach(function(k){
+     'iqc_token','lab_token','oqc_token','oqc_user','oqc_pid'].forEach(function(k){
       localStorage.removeItem(k);
     });
     sessionStorage.removeItem('sa_token');
@@ -1405,10 +1405,15 @@ var _mgmtToken = '';          // SA 進專案時交過來的，只放記憶體�
 function oqcToken(){
   try{ return localStorage.getItem('oqc_token') || ''; }catch(e){ return ''; }
 }
+function oqcPid(){
+  try{ return localStorage.getItem('oqc_pid') || ''; }catch(e){ return ''; }
+}
 function oqcAuthHeaders(h){
   h = h || {};
   var t = oqcToken();
   if(t) h['Authorization'] = 'Bearer ' + t;
+  var p = oqcPid();
+  if(p && !h['x-project-id']) h['x-project-id'] = p;
   return h;
 }
 function oqcShowLogin(msg){
@@ -1423,7 +1428,7 @@ function oqcShowLogin(msg){
   if(i) try{ i.focus(); }catch(x){}
 }
 function oqcSessionExpired(){
-  try{ localStorage.removeItem('oqc_token'); localStorage.removeItem('oqc_user'); }catch(e){}
+  try{ ['oqc_token','oqc_user','oqc_pid'].forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
   oqcShowLogin('登入已過期，請重新登入');
 }
 async function oqcDoLogin(){
@@ -1446,6 +1451,10 @@ async function oqcDoLogin(){
     try{
       localStorage.setItem('oqc_token', d.token);
       localStorage.setItem('oqc_user', d.displayName || d.username || '');
+      /* 記下這個人自己的專案。OQC 面板會去撈 IQC 的尺寸明細，
+         而那份資料是分專案的——不講清楚要撈哪個，後端一律當成
+         Brinc，等於 FIRESTORM 的人看到的是 Brinc 的資料。 */
+      localStorage.setItem('oqc_pid', d.projectId || '');
     }catch(e){}
     p.value = '';
     var g = document.getElementById('oqc-login');

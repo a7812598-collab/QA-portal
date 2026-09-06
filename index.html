@@ -1073,13 +1073,22 @@ body.at-home .topbar{display:none;}
         <div class="oqc-login-card">
           <div class="oqc-login-logo">Solution Consultant</div>
           <div class="oqc-login-sub">OQC Agent 出貨品質管理</div>
-          <label>帳號</label>
-          <input id="oqcUser" type="text" placeholder="請輸入帳號" autocomplete="username">
-          <label>密碼</label>
-          <input id="oqcPass" type="password" placeholder="請輸入密碼" autocomplete="current-password">
+          <div id="oqcCredFields">
+            <label>帳號</label>
+            <input id="oqcUser" type="text" placeholder="請輸入帳號" autocomplete="username">
+            <label>密碼</label>
+            <input id="oqcPass" type="password" placeholder="請輸入密碼" autocomplete="current-password">
+          </div>
+          <!-- 帳號被要求改密碼時，登入後直接在這裡設定，不用跑去 IQC -->
+          <div id="oqcPwFields" style="display:none;">
+            <label>新密碼</label>
+            <input id="oqcNew1" type="password" placeholder="至少 8 個字元" autocomplete="new-password">
+            <label>再輸入一次</label>
+            <input id="oqcNew2" type="password" placeholder="再輸入一次" autocomplete="new-password">
+          </div>
           <button id="oqcLoginBtn" onclick="oqcDoLogin()">登入</button>
           <div id="oqcLoginErr"></div>
-          <div class="oqc-login-note">使用 IQC 系統的帳號密碼</div>
+          <div class="oqc-login-note" id="oqcLoginNote">使用 IQC 系統的帳號密碼</div>
         </div>
       </div>
       <style>
@@ -1416,12 +1425,72 @@ function oqcAuthHeaders(h){
   if(p && !h['x-project-id']) h['x-project-id'] = p;
   return h;
 }
+var _oqcPwToken = '';     // 「只能改密碼」的憑證，不落地
+
+/* 把登入卡片切換成「設定新密碼」 */
+function oqcShowPwStep(who){
+  document.getElementById('oqcCredFields').style.display='none';
+  document.getElementById('oqcPwFields').style.display='';
+  document.getElementById('oqcLoginBtn').textContent='設定並繼續';
+  document.getElementById('oqcLoginBtn').setAttribute('onclick','oqcDoPwChange()');
+  document.getElementById('oqcLoginErr').textContent='';
+  var sub=document.querySelector('#oqc-login .oqc-login-sub');
+  if(sub) sub.textContent=(who?who+'，':'')+'請設定一組新密碼後繼續';
+  var note=document.getElementById('oqcLoginNote');
+  if(note) note.innerHTML='至少 8 個字元；不可與帳號相同，也不能是常見密碼<br>建議用兩三個字組起來，例如 <b>coffee-desk-42</b>';
+  ['oqcNew1','oqcNew2'].forEach(function(id){ document.getElementById(id).value=''; });
+  try{ document.getElementById('oqcNew1').focus(); }catch(e){}
+}
+
+/* 切回一般登入 */
+function oqcResetLoginCard(msg){
+  _oqcPwToken='';
+  document.getElementById('oqcCredFields').style.display='';
+  document.getElementById('oqcPwFields').style.display='none';
+  document.getElementById('oqcLoginBtn').textContent='登入';
+  document.getElementById('oqcLoginBtn').setAttribute('onclick','oqcDoLogin()');
+  var sub=document.querySelector('#oqc-login .oqc-login-sub');
+  if(sub) sub.textContent='OQC Agent 出貨品質管理';
+  var note=document.getElementById('oqcLoginNote');
+  if(note) note.textContent='使用 IQC 系統的帳號密碼';
+  var pw=document.getElementById('oqcPass'); if(pw) pw.value='';
+  document.getElementById('oqcLoginErr').textContent=msg||'';
+}
+
+async function oqcDoPwChange(){
+  var p1=document.getElementById('oqcNew1').value;
+  var p2=document.getElementById('oqcNew2').value;
+  var err=document.getElementById('oqcLoginErr');
+  var btn=document.getElementById('oqcLoginBtn');
+  if(!p1||!p2){ err.textContent='請輸入兩次新密碼'; return; }
+  if(p1!==p2){ err.textContent='兩次輸入的密碼不一樣'; document.getElementById('oqcNew2').value=''; document.getElementById('oqcNew2').focus(); return; }
+  if(p1.length<8){ err.textContent='密碼至少需要 8 個字元'; return; }
+  btn.disabled=true; btn.textContent='設定中…'; err.textContent='';
+  try{
+    var r=await fetch(_IQC_API_BASE+'/password/change',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-functions-key':_IQC_API_KEY,'Authorization':'Bearer '+_oqcPwToken},
+      body: JSON.stringify({ newPassword: p1 })
+    });
+    var d=await r.json().catch(function(){ return {}; });
+    if(!r.ok || (d.code && d.code!==200)){ err.textContent = d.detail || '設定失敗，請再試一次'; return; }
+    oqcResetLoginCard('密碼已更新，請用新密碼登入');
+    try{ document.getElementById('oqcPass').focus(); }catch(e){}
+  }catch(e){
+    err.textContent='無法連線到伺服器，請稍後再試';
+  }finally{
+    btn.disabled=false;
+    if(document.getElementById('oqcPwFields').style.display!=='none') btn.textContent='設定並繼續';
+  }
+}
+
 function oqcShowLogin(msg){
   ['oqc-offline','oqc-dash'].forEach(function(id){
     var e = document.getElementById(id); if(e) e.style.display = 'none';
   });
   var g = document.getElementById('oqc-login');
   if(g) g.style.display = 'flex';
+  if(document.getElementById('oqcCredFields')) oqcResetLoginCard(msg);
   var e = document.getElementById('oqcLoginErr');
   if(e) e.textContent = msg || '';
   var i = document.getElementById('oqcUser');
@@ -1448,6 +1517,15 @@ async function oqcDoLogin(){
       err.textContent = d.error || '帳號或密碼錯誤';
       p.value = ''; p.focus(); return;
     }
+    /* 帳號被標記為「須改密碼」：後端只發了一張「只能改密碼」的憑證。
+       這裡如果照常存起來當成登入成功，面板會打開、但每一支 API 都回
+       403，畫面只會顯示「目前無出貨記錄」——看起來像沒資料，其實是
+       沒權限。所以改成直接在這張卡片上請他設定新密碼。 */
+    if(d.mustChange){
+      _oqcPwToken = d.token;
+      oqcShowPwStep(d.displayName || d.username || un);
+      return;
+    }
     try{
       localStorage.setItem('oqc_token', d.token);
       localStorage.setItem('oqc_user', d.displayName || d.username || '');
@@ -1463,12 +1541,18 @@ async function oqcDoLogin(){
   }catch(e){
     err.textContent = '無法連線到伺服器，請稍後再試';
   }finally{
-    btn.disabled = false; btn.textContent = '登入';
+    /* 切到「設定新密碼」時不要把按鈕改回「登入」——
+       那會讓按鈕的字跟它實際會做的事對不起來。 */
+    btn.disabled = false;
+    if(document.getElementById('oqcPwFields').style.display === 'none'){
+      btn.textContent = '登入';
+    }
   }
 }
 document.addEventListener('keydown', function(ev){
   if(ev.key !== 'Enter') return;
   var a = document.activeElement;
+  if(a && (a.id === 'oqcNew1' || a.id === 'oqcNew2')) { oqcDoPwChange(); return; }
   if(a && (a.id === 'oqcUser' || a.id === 'oqcPass')) oqcDoLogin();
 });
 
